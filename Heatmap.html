@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>UK Customer Heat Map — v3.1.3 (Live filters)</title>
+
+<!-- Leaflet + Heat plugin -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
+<!-- CSV + Excel parsers -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<style>
+:root{ --brand:#0077C8; --ink:#0e1b2a; --muted:#667385; --card:#fff; --shadow:0 6px 20px rgba(0,0,0,.08); }
+*{box-sizing:border-box}
+body{margin:0;font-family:Segoe UI, Roboto, Arial, sans-serif;background:linear-gradient(180deg,#f6f9fc,#eaf3fb);color:var(--ink)}
+#topbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px;background:var(--brand);color:#fff}
+.file-label,button,select{padding:8px 12px;border:none;border-radius:10px;cursor:pointer;font-weight:600}
+.file-label{background:#fff;color:var(--brand)} .file-label:hover{background:#e9f3ff}
+#generateBtn{background:#065ea8;color:#fff} #generateBtn:disabled{background:#9ec8e9;cursor:not-allowed}
+#layout{display:grid;grid-template-columns:320px 1fr;gap:12px;padding:12px}
+#filters{background:var(--card);border-radius:14px;box-shadow:var(--shadow);padding:12px;max-height:calc(100vh - 100px);overflow:auto}
+.filter-header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #edf2f8;padding-bottom:6px;margin-bottom:8px}
+.badge{background:#eef6ff;color:#065ea8;padding:2px 8px;border-radius:999px;font-size:12px}
+.btn-mini{background:#edf5ff;color:#065ea8;padding:4px 8px;border-radius:8px;border:1px solid #cfe4ff;cursor:pointer}
+.btn-mini:hover{background:#e4f0ff}
+#map{width:100%;height:calc(100vh - 100px);border-radius:14px;box-shadow:var(--shadow);background:#dfe9f7}
+details.accordion{border:1px solid #edf2f8;border-radius:10px;margin-bottom:8px;background:#fbfdff}
+details summary{list-style:none;cursor:pointer;padding:10px 12px;font-weight:700;display:flex;justify-content:space-between}
+details summary::-webkit-details-marker{display:none}
+.accordion .content{padding:8px 12px 12px}
+.searchbox{width:100%;padding:8px 10px;border:1px solid #d8e6f7;border-radius:8px;margin:6px 0 10px}
+.value-list{display:grid;grid-template-columns:1fr;gap:6px;max-height:240px;overflow:auto;padding-right:4px}
+.value-item{display:flex;align-items:center;gap:8px}
+.value-item input{transform:scale(1.05)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.small{font-size:12px;color:var(--muted)}
+input[type="file"]{display:none}
+.pill{background:#f0f6ff;color:#065ea8;padding:4px 8px;border-radius:999px}
+.progress{display:flex;align-items:center;gap:8px}
+progress{width:200px;height:10px;border-radius:6px}
+footer{padding:10px 14px;text-align:center;color:#667385;font-size:12px}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <label class="file-label" for="dataFile">📂 Load Excel/CSV</label>
+  <input type="file" id="dataFile" accept=".csv,.xlsx,.xls"/>
+  <select id="postcodeSelect" disabled><option value="">Select postcode column</option></select>
+
+  <button id="generateBtn" disabled>Generate Heat Map</button>
+
+  <span id="status" class="pill">Ready</span>
+  <span id="counts" class="small"></span>
+
+  <span class="progress">
+    <progress id="prog" value="0" max="100"></progress>
+    <span id="progText" class="small"></span>
+  </span>
+</div>
+
+<div id="layout">
+  <aside id="filters">
+    <div class="filter-header">
+      <div class="row">
+        <strong>Filters</strong>
+        <span id="activeCount" class="badge">0 columns active</span>
+      </div>
+      <div class="row">
+        <button id="resetAll" class="btn-mini" title="Clear all filters">Reset</button>
+      </div>
+    </div>
+    <div id="filtersContainer" class="small"><em>Load a data file to initialise filters…</em></div>
+  </aside>
+
+  <div id="map"></div>
+</div>
+
+<footer>Toolsaver Heat Map v3.1.3 — embedded postcodes, live filters (latest-wins), tokenised across all columns</footer>
+
+<!--
+  EMBED YOUR 'Postcodes summary.csv' CONTENT BELOW:
+  - Replace the sample rows inside this <script> block with your CSV.
+  - Required headers: Postcode area, Latitude, Longitude
+-->
+<script id="postcode-areas" type="text/csv">
+Postcode area,Latitude,Longitude
+AB,57.157,-2.094
+AL,51.75,-0.33
+B,52.48,-1.91
+BA,51.38,-2.36
+BB,53.79,-2.25
+BD,53.79,-1.75
+BH,50.72,-1.88
+BL,53.58,-2.43
+BN,50.84,-0.14
+BR,51.4,0.05
+BS,51.45,-2.58
+CA,54.89,-2.94
+CB,52.2,0.12
+CF,51.49,-3.18
+CH,53.2,-2.92
+CM,51.74,0.48
+CO,51.89,0.9
+CR,51.37,-0.1
+CT,51.28,1.08
+CV,52.41,-1.51
+CW,53.1,-2.44
+DA,51.44,0.2
+DD,56.47,-2.97
+DE,52.92,-1.47
+DG,55.07,-3.61
+DH,54.78,-1.57
+DL,54.53,-1.55
+DN,53.52,-1.13
+DT,50.71,-2.44
+DY,52.5,-2.12
+E,51.52,-0.05
+EC,51.52,-0.09
+EH,55.95,-3.19
+EN,51.66,-0.07
+EX,50.72,-3.53
+FK,56.12,-3.94
+FY,53.82,-3.04
+G,55.86,-4.25
+GL,51.86,-2.24
+GU,51.24,-0.57
+GY,49.45,-2.54
+HA,51.58,-0.34
+HD,53.64,-1.78
+HG,53.99,-1.54
+HP,51.77,-0.61
+HR,52.06,-2.72
+HS,58.21,-6.39
+HU,53.75,-0.33
+HX,53.72,-1.86
+IG,51.57,0.07
+IP,52.06,1.16
+IV,57.48,-4.22
+JE,49.21,-2.13
+KA,55.61,-4.49
+KT,51.39,-0.3
+KW,58.98,-2.96
+KY,56.12,-3.16
+L,53.41,-2.99
+LA,54.05,-2.8
+LD,52.24,-3.38
+LE,52.64,-1.13
+LL,53.19,-3.15
+LN,53.23,-0.54
+LS,53.8,-1.55
+LU,51.89,-0.42
+M,53.48,-2.24
+ME,51.37,0.52
+MK,52.04,-0.76
+ML,55.78,-3.99
+N,51.58,-0.12
+NE,54.97,-1.61
+NG,52.95,-1.15
+NN,52.24,-0.89
+NP,51.59,-3
+NR,52.63,1.3
+NW,51.55,-0.19
+OL,53.54,-2.11
+OX,51.75,-1.26
+PA,55.86,-4.26
+PE,52.57,-0.24
+PH,56.4,-3.43
+PL,50.37,-4.14
+PO,50.81,-1.07
+PR,53.76,-2.7
+RG,51.45,-0.97
+RH,51.23,-0.19
+RM,51.55,0.21
+S,53.39,-1.47
+SA,51.62,-3.94
+SE,51.49,-0.08
+SG,51.9,-0.2
+SK,53.39,-2.15
+SL,51.5,-0.59
+SM,51.36,-0.19
+SN,51.56,-1.78
+SO,50.9,-1.4
+SP,51.07,-1.79
+SR,54.9,-1.38
+SS,51.55,0.7
+ST,53.01,-2.18
+SW,51.49,-0.16
+SY,52.71,-2.75
+TA,51.02,-3.1
+TD,55.7,-2.64
+TF,52.68,-2.45
+TN,51.13,0.27
+TQ,50.47,-3.53
+TR,50.26,-5.05
+TS,54.57,-1.23
+TW,51.44,-0.33
+UB,51.53,-0.38
+W,51.51,-0.3
+WA,53.39,-2.59
+WC,51.52,-0.12
+WD,51.66,-0.39
+WF,53.69,-1.5
+WN,53.54,-2.63
+WR,52.19,-2.22
+WS,52.62,-2
+WV,52.59,-2.13
+YO,53.96,-1.08
+ZE,60.15,-1.15
+</script>
+
+<script>
+/* ---------- Parse embedded postcode CSV into POSTCODE_REF ---------- */
+function parseEmbeddedPostcodes(){
+  const csv = document.getElementById('postcode-areas').textContent.trim();
+  const res = Papa.parse(csv, { header: true, skipEmptyLines: true });
+  return res.data.map(r => ({
+    area: String(r["Postcode area"] ?? r["postcode_area"] ?? "").trim().toUpperCase(),
+    lat: parseFloat(r["Latitude"] ?? r["latitude"]),
+    lon: parseFloat(r["Longitude"] ?? r["longitude"])
+  })).filter(x => x.area && !Number.isNaN(x.lat) && !Number.isNaN(x.lon));
+}
+const POSTCODE_REF = parseEmbeddedPostcodes();
+
+/* ---------- State ---------- */
+let customerRows = [];
+let columns = [];
+let postcodeCol = null;
+let map, heatLayer = null;
+
+const SHOW_FIRST_VALUES = 250;
+const EXCLUDE_COLUMNS = new Set([]);
+
+const filterSelections = {};     // { col: Set(values) }
+const uniqueCache = {};          // { col: string[] }   (token uniques for multi, full values for single)
+const tokenCache = {};           // { col: string[][] } row-aligned tokens for ALL columns
+const isMultiValueCol = {};      // { col: boolean }
+
+let currentJob = 0;              // latest-wins generation token
+
+/* ---------- Map ---------- */
+function initMap(){
+  map = L.map('map').setView([54.5, -3.0], 6);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'© OpenStreetMap contributors' }).addTo(map);
+}
+initMap();
+
+/* ---------- Utils ---------- */
+const norm = v => String(v ?? "").trim();
+const up = v => norm(v).toUpperCase();
+const lettersOnly = s => (up(s).match(/^([A-Z]+)/)||[])[1] || null;
+function debounce(fn, ms=150){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms) } }
+function setStatus(t){ document.getElementById('status').textContent = t }
+function setCounts(t){ document.getElementById('counts').textContent = t }
+function setProgress(p,msg=""){ const prog=document.getElementById('prog'); prog.value=p; document.getElementById('progText').textContent=msg }
+function resetProgress(){ setProgress(0,"") }
+
+/* ---------- File loader (Excel/CSV unchanged) ---------- */
+document.getElementById('dataFile').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const ext = f.name.split('.').pop().toLowerCase();
+
+  const afterLoad = (rows)=>{
+    if(!rows?.length){ setStatus("No rows in data file"); return }
+    customerRows = rows;
+    columns = Object.keys(rows[0] || {});
+    setStatus(`Loaded data: ${f.name} (${rows.length} rows)`);
+    setCounts("");
+    populatePostcodeDropdown(columns);
+    precomputeUniquesAndTokens();
+    buildFilterUI();
+    maybeEnableGenerate();
+    generateHeatMap(true); // auto-generate once loaded
+  };
+
+  if(ext==='csv'){
+    Papa.parse(f,{header:true,skipEmptyLines:true,complete:r=>afterLoad(r.data)});
+  } else if (ext==='xlsx' || ext==='xls'){
+    const reader = new FileReader();
+    reader.onload = ev=>{
+      const wb = XLSX.read(new Uint8Array(ev.target.result), {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      afterLoad(XLSX.utils.sheet_to_json(ws));
+    };
+    reader.readAsArrayBuffer(f);
+  } else {
+    setStatus("Unsupported file type");
+  }
+});
+
+function populatePostcodeDropdown(cols){
+  const sel = document.getElementById('postcodeSelect');
+  sel.innerHTML = '<option value="">Select postcode column</option>';
+  cols.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; sel.appendChild(o); });
+  sel.disabled=false;
+}
+document.getElementById('postcodeSelect').addEventListener('change', e=>{
+  postcodeCol = e.target.value || null;
+  maybeEnableGenerate();
+  generateHeatMap(true); // reflect postcode column change immediately
+});
+
+function maybeEnableGenerate(){
+  const ok = customerRows.length>0 && POSTCODE_REF.length>0 && !!postcodeCol;
+  document.getElementById('generateBtn').disabled = !ok;
+}
+document.getElementById('generateBtn').addEventListener('click', ()=>generateHeatMap(false));
+
+/* ---------- Multi-value detection & tokenisation (for ALL columns) ---------- */
+function detectMultiValueColumns(rows, cols){
+  for (const col of cols){
+    let sampled = 0, sepCount = 0, multiTokenRows = 0, nonEmpty=0;
+    for (let i=0; i<rows.length && sampled<4000; i++){
+      const v = norm(rows[i][col]); if(!v) continue; sampled++; nonEmpty++;
+      if (/[,;|/]/.test(v)) sepCount++;
+      const parts = v.split(/\s+/).filter(Boolean);
+      if (parts.length > 1) multiTokenRows++;
+    }
+    const sepRatio = nonEmpty ? sepCount/nonEmpty : 0;
+    const multiRatio = nonEmpty ? multiTokenRows/nonEmpty : 0;
+    isMultiValueCol[col] = (sepRatio >= 0.05) || (multiRatio >= 0.10);
+  }
+}
+
+function tokeniseCell(col, value){
+  const raw = norm(value);
+  if (!raw) return [];
+  if (isMultiValueCol[col]){
+    // Split by common delimiters + whitespace; keep trimmed non-empty tokens
+    return raw.toUpperCase().split(/[,\s;|/]+/).filter(Boolean);
+  } else {
+    // Single-value: keep whole value (case-sensitive display, case-insensitive match)
+    return [raw];
+  }
+}
+
+/* ---------- Build uniques + tokens once per load ---------- */
+function precomputeUniquesAndTokens(){
+  for(const k of Object.keys(uniqueCache)) delete uniqueCache[k];
+  for(const k of Object.keys(tokenCache)) delete tokenCache[k];
+  for(const k of Object.keys(isMultiValueCol)) delete isMultiValueCol[k];
+
+  detectMultiValueColumns(customerRows, columns);
+
+  for (const col of columns){
+    const uniques = new Map();
+    const perRow = [];
+    for (let i=0; i<customerRows.length; i++){
+      const toks = tokeniseCell(col, customerRows[i][col]);
+      perRow.push(toks);
+      if (isMultiValueCol[col]){
+        for (const t of toks) if (t!=="" && !uniques.has(t)) uniques.set(t,1);
+      } else {
+        const v = norm(customerRows[i][col]);
+        if (v!=="" && !uniques.has(v)) uniques.set(v,1);
+      }
+    }
+    uniqueCache[col] = Array.from(uniques.keys())
+      .sort((a,b)=>a.localeCompare(b, undefined, {numeric:true, sensitivity:'base'}));
+    tokenCache[col] = perRow; // store for all columns
+  }
+}
+
+/* ---------- Filters UI ---------- */
+function buildFilterUI(){
+  const container = document.getElementById('filtersContainer');
+  container.innerHTML = "";
+  if(!columns.length){ container.innerHTML = "<em>No columns available.</em>"; return }
+
+  const cols = columns.filter(c => c !== postcodeCol && !EXCLUDE_COLUMNS.has(c));
+  for(const col of cols){
+    if(!filterSelections[col]) filterSelections[col] = new Set(uniqueCache[col] || []);
+    container.appendChild(renderColumnFilter(col, uniqueCache[col] || [], isMultiValueCol[col]));
+  }
+  updateActiveCount();
+}
+
+function renderColumnFilter(col, values, isMulti){
+  const details = document.createElement('details'); details.className="accordion";
+  const typeBadge = isMulti ? '<span class="badge">multi</span>' : '';
+  const summary = document.createElement('summary');
+  summary.innerHTML = `<span>${col}</span><span class="small">${values.length} values ${typeBadge}</span>`;
+  details.appendChild(summary);
+
+  const wrap = document.createElement('div'); wrap.className="content";
+  const row = document.createElement('div'); row.className="row";
+  const allBtn = document.createElement('button'); allBtn.className="btn-mini"; allBtn.textContent="Select all";
+  const clrBtn = document.createElement('button'); clrBtn.className="btn-mini"; clrBtn.textContent="Clear";
+  row.appendChild(allBtn); row.appendChild(clrBtn);
+  wrap.appendChild(row);
+
+  const search = document.createElement('input'); search.className="searchbox"; search.placeholder="Search values…";
+  wrap.appendChild(search);
+
+  const list = document.createElement('div'); list.className="value-list";
+  wrap.appendChild(list);
+  details.appendChild(wrap);
+
+  const selected = filterSelections[col];
+
+  function renderList(q=""){
+    const needle = up(q);
+    list.innerHTML = "";
+    let shown=0, rendered=0;
+    for(const v of values){
+      if(needle && !up(String(v)).includes(needle)) continue;
+      shown++;
+      if(!needle && rendered>=SHOW_FIRST_VALUES) continue;
+      rendered++;
+
+      const item = document.createElement('label'); item.className="value-item";
+      const cb = document.createElement('input'); cb.type="checkbox"; cb.checked = selected.has(v);
+      cb.addEventListener('change', ()=>{
+        if(cb.checked) selected.add(v); else selected.delete(v);
+        requestUpdate(); // live refresh
+      });
+      const span = document.createElement('span'); span.textContent = v;
+      item.appendChild(cb); item.appendChild(span);
+      list.appendChild(item);
+    }
+    if(shown>rendered){
+      const hint = document.createElement('div'); hint.className="small"; hint.style.marginTop="6px";
+      hint.textContent = `Showing ${rendered} of ${shown}. Type to search for more.`;
+      list.appendChild(hint);
+    }
+  }
+
+  allBtn.addEventListener('click', e=>{ e.preventDefault(); values.forEach(v=>selected.add(v)); renderList(search.value); requestUpdate(); });
+  clrBtn.addEventListener('click', e=>{ e.preventDefault(); selected.clear(); renderList(search.value); requestUpdate(); });
+  search.addEventListener('input', ()=>renderList(search.value));
+  renderList();
+
+  return details;
+}
+
+function updateActiveCount(){
+  let activeCols=0;
+  for(const col of Object.keys(filterSelections)){
+    if(col===postcodeCol) continue;
+    const selected = filterSelections[col];
+    const universe = uniqueCache[col]?.length ?? 0;
+    if(universe && selected && selected.size && selected.size < universe) activeCols++;
+  }
+  document.getElementById('activeCount').textContent = `${activeCols} columns active`;
+}
+
+/* ---------- Live update plumbing (latest-wins) ---------- */
+const requestUpdate = debounce(()=>generateHeatMap(true), 150);
+
+function rowPassesFilters(rowIndex){
+  for(const col of Object.keys(filterSelections)){
+    if(col===postcodeCol) continue;
+    const selected = filterSelections[col];
+    const universe = uniqueCache[col]?.length ?? 0;
+    // If nothing is being restricted in this column, skip
+    if(!(universe && selected && selected.size && selected.size < universe)) continue;
+
+    const toks = tokenCache[col]?.[rowIndex] || [];
+    if (isMultiValueCol[col]){
+      // need at least one token selected
+      let any = false;
+      for (const t of toks){ if (selected.has(t)) { any = true; break; } }
+      if (!any) return false;
+    } else {
+      // single token representing full cell value
+      if (toks.length===0) return false;
+      if (!selected.has(toks[0])) return false;
+    }
+  }
+  return true;
+}
+
+/* ---------- Heat Map generation (chunked + latest-wins) ---------- */
+async function generateHeatMap(isAuto){
+  if(!customerRows.length || !POSTCODE_REF.length || !postcodeCol){
+    setStatus("Load data and choose the postcode column");
+    return;
+  }
+  const myJob = ++currentJob; // this render's token
+
+  setStatus(isAuto ? "Updating map…" : "Generating map…");
+  setProgress(0, "Starting…");
+
+  try{
+    const ref = new Map(POSTCODE_REF.map(r => [r.area, [r.lat, r.lon]]));
+    const N = customerRows.length;
+    const CHUNK = 3000;
+    const pts = [];
+    let considered=0;
+
+    for(let i=0;i<N;i+=CHUNK){
+      if (myJob !== currentJob) return; // superseded by a newer update
+      const end = Math.min(i+CHUNK, N);
+
+      for(let j=i;j<end;j++){
+        if (myJob !== currentJob) return;
+        if(!rowPassesFilters(j)) continue;
+        considered++;
+        const raw = up(customerRows[j][postcodeCol] || "");
+        if(!raw) continue;
+        const outward = raw.split(" ")[0];
+        const area = lettersOnly(outward);
+        const xy = area ? ref.get(area) : null;
+        if(xy) pts.push(xy);
+      }
+
+      const percent = Math.round((end/N)*100);
+      setProgress(percent, `${end}/${N}`);
+      await new Promise(r => setTimeout(r, 0)); // yield to UI
+    }
+
+    if (myJob !== currentJob) return; // don't paint old results
+    if(heatLayer) map.removeLayer(heatLayer);
+    heatLayer = L.heatLayer(pts, { radius:20, blur:25, maxZoom:10 }).addTo(map);
+    map.setView([54.5, -3.0], 6);
+
+    setCounts(`${pts.length} points from ${considered} matching rows`);
+    setStatus("Done");
+  } catch(err){
+    console.error(err);
+    setStatus("Error — check console");
+  } finally {
+    resetProgress();
+  }
+}
+
+/* ---------- Reset button ---------- */
+document.getElementById('resetAll').addEventListener('click', ()=>{
+  for(const col of Object.keys(filterSelections)){
+    filterSelections[col] = new Set(uniqueCache[col] || []);
+  }
+  buildFilterUI();
+  generateHeatMap(true);
+});
+</script>
+</body>
+</html>
