@@ -1,6 +1,6 @@
-# UK Customer Heat Map (Leaflet + Leaflet.heat)
+# UK Customer Heat Map
 
-A single-file, browser-only UK heat map that turns your customer list (CSV/XLSX) into a Leaflet heat map. Postcode areas are embedded, filters are auto-generated from your columns, and updates are live as you tick/untick values.
+A single-file, browser-only UK heat map that turns your customer list (CSV/XLSX) into a heat map. Postcode areas are embedded, filters are auto-generated from your columns, and updates are live as you tick/untick values.
 
 > No servers, no builds — just open `Heatmap.html` in a modern browser.
 
